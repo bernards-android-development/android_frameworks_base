@@ -79,4 +79,7 @@
 
     <!-- Allow devices override audio panel location to the left side -->
     <bool name="config_audioPanelOnLeftSide">false</bool>
+    
+    <!-- Show 5G toggle in internet dialog when available -->
+    <bool name="config_supportsVONR">true</bool>
 </resources>
