@@ -1132,6 +1132,9 @@ public class InternetDetailsContentController implements AccessPointController.A
     }
 
     boolean isFivegSupported() {
+        if (!mContext.getResources().getBoolean(R.bool.config_supportsVONR))
+            return false;
+
         List<Integer> list = TelephonyProperties.default_network();
         for (int type : list) {
             if (type > 22)
