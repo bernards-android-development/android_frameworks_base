@@ -2172,11 +2172,11 @@ public abstract class OomAdjuster {
                     // do nothing if we already switched to RT
                     if (oldSchedGroup != SCHED_GROUP_TOP_APP) {
                         state.notifyTopProcChanged();
-                        if (state.useFifoUiScheduling()) {
-                            // Switch UI pipeline for app to SCHED_FIFO
+                        if (state.useRoundRobinUiScheduling()) {
+                            // Switch UI pipeline for app to SCHED_RR
                             state.setSavedPriority(Process.getThreadPriority(state.getPid()));
-                            ActivityManagerService.setFifoPriority(state, true /* enable */);
-                        } else {
+                            ActivityManagerService.setRoundRobinPriority(state, true /* enable */);
+                        } else if (state.useFifoUiScheduling()) {
                             // Boost priority for top app UI and render threads
                             mInjector.setThreadPriority(state.getPid(),
                                     THREAD_PRIORITY_TOP_APP_BOOST);
@@ -2193,11 +2193,11 @@ public abstract class OomAdjuster {
                 } else if (oldSchedGroup == SCHED_GROUP_TOP_APP
                         && curSchedGroup != SCHED_GROUP_TOP_APP) {
                     state.notifyTopProcChanged();
-                    if (state.useFifoUiScheduling()) {
+                    if (state.useRoundRobinUiScheduling()) {
                         // Reset UI pipeline to SCHED_OTHER
-                        ActivityManagerService.setFifoPriority(state, false /* enable */);
+                        ActivityManagerService.setRoundRobinPriority(state, false /* enable */);
                         mInjector.setThreadPriority(state.getPid(), state.getSavedPriority());
-                    } else {
+                    } else if (state.useFifoUiScheduling()) {
                         // Reset priority for top app UI and render threads
                         mInjector.setThreadPriority(state.getPid(), 0);
                     }
@@ -2372,7 +2372,9 @@ public abstract class OomAdjuster {
                 // {@link SCHED_GROUP_TOP_APP}. We don't check render thread because it
                 // is not ready when attaching.
                 app.notifyTopProcChanged();
-                if (app.useFifoUiScheduling()) {
+                if (app.useRoundRobinUiScheduling()) {
+                    mService.scheduleAsRoundRobinPriority(app.getPid(), true);
+                } else if (app.useFifoUiScheduling()) {
                     mService.scheduleAsFifoPriority(app.getPid(), true);
                 } else {
                     mInjector.setThreadPriority(app.getPid(), THREAD_PRIORITY_TOP_APP_BOOST);
