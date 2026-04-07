@@ -68,6 +68,7 @@ import static android.os.Process.THREAD_GROUP_DEFAULT;
 import static android.os.Process.THREAD_GROUP_FOREGROUND_WINDOW;
 import static android.os.Process.THREAD_GROUP_RESTRICTED;
 import static android.os.Process.THREAD_GROUP_TOP_APP;
+import static android.os.Process.THREAD_GROUP_SYSTEMUI;
 import static android.os.Process.THREAD_PRIORITY_DISPLAY;
 import static android.os.Process.THREAD_PRIORITY_TOP_APP_BOOST;
 
@@ -2070,6 +2071,11 @@ public abstract class OomAdjuster {
         mService.reportOomAdjMessageLocked(msg);
     }
 
+    protected static boolean isUiCriticalProcess(String processName) {
+        return "com.android.systemui".equals(processName)
+            || "com.google.android.apps.nexuslauncher".equals(processName);
+    }
+
     /** Applies the computed oomadj, procstate and sched group values and freezes them in set* */
     @GuardedBy({"mService", "mProcLock"})
     protected boolean applyOomAdjLSP(ProcessRecordInternal state, boolean doingAll, long now,
@@ -2143,6 +2149,9 @@ public abstract class OomAdjuster {
                 default:
                     processGroup = THREAD_GROUP_DEFAULT;
                     break;
+            }
+            if (processGroup != THREAD_GROUP_TOP_APP && isUiCriticalProcess(state.processName)) {
+                processGroup = THREAD_GROUP_SYSTEMUI;
             }
             setAppAndChildProcessGroup(state, processGroup);
             try {
