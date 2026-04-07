@@ -69,6 +69,7 @@ import static android.os.Process.THREAD_GROUP_FOREGROUND_WINDOW;
 import static android.os.Process.THREAD_GROUP_RESTRICTED;
 import static android.os.Process.THREAD_GROUP_TOP_APP;
 import static android.os.Process.THREAD_GROUP_SYSTEMUI;
+import static android.os.Process.THREAD_GROUP_SVP;
 import static android.os.Process.THREAD_PRIORITY_DISPLAY;
 import static android.os.Process.THREAD_PRIORITY_TOP_APP_BOOST;
 
@@ -2076,6 +2077,10 @@ public abstract class OomAdjuster {
             || "com.google.android.apps.nexuslauncher".equals(processName);
     }
 
+    protected static boolean isSVProcess(String processName) {
+        return isUiCriticalProcess(processName);
+    }
+
     /** Applies the computed oomadj, procstate and sched group values and freezes them in set* */
     @GuardedBy({"mService", "mProcLock"})
     protected boolean applyOomAdjLSP(ProcessRecordInternal state, boolean doingAll, long now,
@@ -2138,7 +2143,11 @@ public abstract class OomAdjuster {
                     break;
                 case SCHED_GROUP_TOP_APP:
                 case SCHED_GROUP_TOP_APP_BOUND:
-                    processGroup = THREAD_GROUP_TOP_APP;
+                    if (isSVProcess(state.processName)) {
+                        processGroup = THREAD_GROUP_SVP;
+                    } else {
+                        processGroup = THREAD_GROUP_TOP_APP;
+                    }
                     break;
                 case SCHED_GROUP_RESTRICTED:
                     processGroup = THREAD_GROUP_RESTRICTED;
@@ -2150,7 +2159,10 @@ public abstract class OomAdjuster {
                     processGroup = THREAD_GROUP_DEFAULT;
                     break;
             }
-            if (processGroup != THREAD_GROUP_TOP_APP && isUiCriticalProcess(state.processName)) {
+            if (processGroup != THREAD_GROUP_TOP_APP 
+                && processGroup != THREAD_GROUP_SVP 
+                && isUiCriticalProcess(state.processName)) 
+            {
                 processGroup = THREAD_GROUP_SYSTEMUI;
             }
             setAppAndChildProcessGroup(state, processGroup);

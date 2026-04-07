@@ -605,6 +605,12 @@ public class Process {
     /** @hide */
     public static final int THREAD_GROUP_SYSTEMUI = 9;
 
+    /**
+     * Thread group for important visual processes
+     * @hide
+     **/
+    public static final int THREAD_GROUP_SVP = 10;
+
     /** @hide */
     public static final int SIGNAL_DEFAULT = 0;
     public static final int SIGNAL_QUIT = 3;
