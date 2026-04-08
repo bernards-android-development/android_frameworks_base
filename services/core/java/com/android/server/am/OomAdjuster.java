@@ -2177,6 +2177,10 @@ public abstract class OomAdjuster {
                             state.setSavedPriority(Process.getThreadPriority(state.getPid()));
                             ActivityManagerService.setRoundRobinPriority(state, true /* enable */);
                         } else if (state.useFifoUiScheduling()) {
+                            // Switch UI pipeline for app to SCHED_FIFO
+                            state.setSavedPriority(Process.getThreadPriority(state.getPid()));
+                            ActivityManagerService.setFifoPriority(state, true /* enable */);
+                        } else {
                             // Boost priority for top app UI and render threads
                             mInjector.setThreadPriority(state.getPid(),
                                     THREAD_PRIORITY_TOP_APP_BOOST);
@@ -2198,6 +2202,10 @@ public abstract class OomAdjuster {
                         ActivityManagerService.setRoundRobinPriority(state, false /* enable */);
                         mInjector.setThreadPriority(state.getPid(), state.getSavedPriority());
                     } else if (state.useFifoUiScheduling()) {
+                        // Reset UI pipeline to SCHED_OTHER
+                        ActivityManagerService.setFifoPriority(state, false /* enable */);
+                        mInjector.setThreadPriority(state.getPid(), state.getSavedPriority());
+                    } else {
                         // Reset priority for top app UI and render threads
                         mInjector.setThreadPriority(state.getPid(), 0);
                     }
