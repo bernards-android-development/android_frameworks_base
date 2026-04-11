@@ -600,10 +600,7 @@ constructor(
             changes += combinedShadeHeadersConstraintManager.emptyCutoutConstraints()
         }
 
-        val offsetReduction = resources.getDimensionPixelSize(R.dimen.ax_qs_offset_reduction)
-        (date as VariableDateView).freezeSwitching = true
-        view.setPadding(view.paddingLeft, (sbInsets.top - offsetReduction).coerceAtLeast(0), view.paddingRight, view.paddingBottom)
-        view.post { (date as VariableDateView).freezeSwitching = false }
+        view.setPadding(view.paddingLeft, sbInsets.top, view.paddingRight, view.paddingBottom)
         view.updateAllConstraints(changes)
         updateBatteryMode()
     }
