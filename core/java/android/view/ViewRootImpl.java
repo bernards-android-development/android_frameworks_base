@@ -2374,7 +2374,8 @@ public final class ViewRootImpl implements ViewParent,
             final boolean noConfigOrDisplayChange = !configChanged && !displayChanged;
             if (noSizeChange && noConfigOrDisplayChange
                     && mBasePackageName != null
-                    && mBasePackageName.startsWith("com.android.launcher")) {
+                    && (mBasePackageName.startsWith("com.android.launcher") || mBasePackageName.startsWith("com.google.android.apps.nexuslauncher"))) 
+            {
                 mSyncSeqId = seqId;
                 mLastSyncSeqId = mSyncSeqId;
                 reportNextDraw("resized");
