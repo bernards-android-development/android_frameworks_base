@@ -566,7 +566,7 @@ public class CachedAppOptimizer {
         mAm = am;
         mProcLock = am.mProcLock;
         mCachedAppOptimizerThread = new ServiceThread("CachedAppOptimizerThread",
-            Process.THREAD_GROUP_BACKGROUND, true);
+            Process.THREAD_GROUP_SYSTEM, true);
         mProcStateThrottle = new HashSet<>();
         mProcessDependencies = processDependencies;
         mTestCallback = callback;
@@ -807,9 +807,10 @@ public class CachedAppOptimizer {
 
             mCompactionHandler = new MemCompactionHandler();
             mCompactStatsManager = CompactionStatsManager.getInstance();
+
+            Process.setThreadGroupAndCpuset(mCachedAppOptimizerThread.getThreadId(),
+                    Process.THREAD_GROUP_SYSTEM);
         }
-        Process.setThreadGroupAndCpuset(mCachedAppOptimizerThread.getThreadId(),
-                    Process.THREAD_GROUP_BACKGROUND);
     }
 
     /**
@@ -909,7 +910,7 @@ public class CachedAppOptimizer {
                 }
 
                 Process.setThreadGroupAndCpuset(mCachedAppOptimizerThread.getThreadId(),
-                        Process.THREAD_GROUP_BACKGROUND);
+                        Process.THREAD_GROUP_SYSTEM);
             } else {
                 Slog.d(TAG_AM, "Freezer disabled");
                 enableFreezer(false);
