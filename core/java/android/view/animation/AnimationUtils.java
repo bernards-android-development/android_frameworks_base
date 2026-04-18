@@ -506,4 +506,58 @@ public class AnimationUtils {
         }
         return interpolator;
     }
+
+    /** @hide */
+    public static final class SpringInterpolator implements Interpolator {
+        private final float mDampingRatio;
+        private final float mOmega0;
+        private final long mDurationMs;
+        private final float mDurationSec;
+        private final float mEndOutput;
+        private final float mEndGap;
+
+        public SpringInterpolator(float dampingRatio, float stiffness) {
+            mDampingRatio = dampingRatio;
+            mOmega0 = (float) Math.sqrt(stiffness);
+            final float settleSec;
+            if (dampingRatio >= 1.0f) {
+                settleSec = 9.23f / mOmega0;
+            } else {
+                settleSec = 6.91f / (dampingRatio * mOmega0);
+            }
+            mDurationMs = Math.max(50L, (long) (settleSec * 1000f));
+            mDurationSec = mDurationMs / 1000f;
+            mEndOutput = rawSpring(mDurationSec);
+            mEndGap = 1.0f - mEndOutput;
+        }
+
+        public long getDurationMs() {
+            return mDurationMs;
+        }
+
+        private float rawSpring(float t) {
+            final float zeta = mDampingRatio;
+            final float w0 = mOmega0;
+            if (zeta < 1.0f) {
+                final float wd = w0 * (float) Math.sqrt(1.0f - zeta * zeta);
+                final float env = (float) Math.exp(-zeta * w0 * t);
+                return 1.0f - env * ((float) Math.cos(wd * t)
+                        + (zeta * w0 / wd) * (float) Math.sin(wd * t));
+            } else if (zeta > 1.0f) {
+                final float d = (float) Math.sqrt(zeta * zeta - 1.0f);
+                final float r1 = -w0 * (zeta - d);
+                final float r2 = -w0 * (zeta + d);
+                return 1.0f - (r2 * (float) Math.exp(r1 * t)
+                        - r1 * (float) Math.exp(r2 * t)) / (r2 - r1);
+            } else {
+                final float env = (float) Math.exp(-w0 * t);
+                return 1.0f - env * (1.0f + w0 * t);
+            }
+        }
+
+        @Override
+        public float getInterpolation(float input) {
+            return rawSpring(input * mDurationSec) + mEndGap * input;
+        }
+    }
 }
