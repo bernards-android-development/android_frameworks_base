@@ -19848,17 +19848,6 @@ public class ActivityManagerService extends IActivityManager.Stub
         return mFreezer;
     }
 
-
-    @Override
-    public String getSpoofPifConfig() {
-        return AxExtServiceFactory.getSpoofManager().getPifConfig();
-    }
-
-    @Override
-    public String getSpoofGamePropsConfig() {
-        return AxExtServiceFactory.getSpoofManager().getGamePropsConfig();
-    }
-
     @Override
     public String getSpoofTrickyStoreTarget() {
         return AxExtServiceFactory.getSpoofManager().getTrickyStoreTarget();
