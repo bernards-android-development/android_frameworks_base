@@ -230,17 +230,16 @@ public class AnimationUtils {
     public static Animation loadAnimation(Context context, @AnimRes int id)
             throws NotFoundException {
 
-        if (SystemProperties.getBoolean("persist.sys.activity_anim_perf_override", false)) {
-            ActivityAnimations.maybeInit(context);
+        if (ActivityAnimations.sPerfAnimEnabled) {
             switch (id) {
                 case R.anim.activity_open_enter:
-                    return ActivityAnimations.getOpenEnter();
+                    return ActivityAnimations.getOpenEnter(context);
                 case R.anim.activity_open_exit:
-                    return ActivityAnimations.getOpenExit();
+                    return ActivityAnimations.getOpenExit(context);
                 case R.anim.activity_close_enter:
-                    return ActivityAnimations.getCloseEnter();
+                    return ActivityAnimations.getCloseEnter(context);
                 case R.anim.activity_close_exit:
-                    return ActivityAnimations.getCloseExit();
+                    return ActivityAnimations.getCloseExit(context);
             }
         }
 
@@ -526,6 +525,122 @@ public class AnimationUtils {
     }
 
     /** @hide */
+    public final class ActivityAnimations {
+
+        public static final boolean sPerfAnimEnabled = SystemProperties.getBoolean(
+                "persist.sys.activity_anim_perf_override", false);
+
+        private static Animation sOpenEnter;
+        private static Animation sOpenExit;
+        private static Animation sCloseEnter;
+        private static Animation sCloseExit;
+
+        private static SpringInterpolator sSpatialSpec;
+        private static SpringInterpolator sEffectsSpec;
+
+        private static final float DISTANCE = 0.333f;
+
+        private ActivityAnimations() {}
+
+        /** @hide */
+        public static void preload(Context context) {
+            sSpatialSpec = new SpringInterpolator(0.8f, 380f);
+            sEffectsSpec = new SpringInterpolator(1.0f, 3800f);
+            sOpenEnter = new ActivityAnimFactory()
+                    .fromX(1.0f)
+                    .toX(0.0f)
+                    .fade(0.0f, 1.0f)
+                    .build();
+            sOpenExit = new ActivityAnimFactory()
+                    .fromX(0.0f)
+                    .toX(-DISTANCE)
+                    .fade(1.0f, 0.0f)
+                    .build();
+            sCloseEnter = new ActivityAnimFactory()
+                        .fromX(-DISTANCE)
+                        .toX(0.0f)
+                        .fade(0.0f, 1.0f)
+                        .build();
+            sCloseExit = new ActivityAnimFactory()
+                        .fromX(0.0f)
+                        .toX(1.0f)
+                        .fade(1.0f, 0.0f)
+                        .build();
+        }
+
+        private static int loadBackdropColor(Context context) {
+            return context.getColor(
+                    com.android.internal.R.color.materialColorSurfaceContainer);
+        }
+
+        private static class ActivityAnimFactory {
+            private float fromX = 0f, toX = 0f;
+            private float fromAlpha = 1f, toAlpha = 1f;
+
+            public ActivityAnimFactory fromX(float ratio) {
+                this.fromX = ratio;
+                return this;
+            }
+
+            public ActivityAnimFactory toX(float ratio) {
+                this.toX = ratio;
+                return this;
+            }
+
+            public ActivityAnimFactory fade(float from, float to) {
+                this.fromAlpha = from;
+                this.toAlpha = to;
+                return this;
+            }
+
+            public Animation build() {
+                AnimationSet animationSet = new AnimationSet(false);
+                TranslateAnimation slide = new TranslateAnimation(
+                        Animation.RELATIVE_TO_SELF, fromX,
+                        Animation.RELATIVE_TO_SELF, toX,
+                        Animation.RELATIVE_TO_SELF, 0f,
+                        Animation.RELATIVE_TO_SELF, 0f
+                );
+                slide.setDuration(sSpatialSpec.getDurationMs());
+                slide.setInterpolator(sSpatialSpec);
+                animationSet.addAnimation(slide);
+                if (fromAlpha != toAlpha) {
+                    AlphaAnimation fade = new AlphaAnimation(fromAlpha, toAlpha);
+                    fade.setDuration(sEffectsSpec.getDurationMs());
+                    fade.setInterpolator(sEffectsSpec);
+                    animationSet.addAnimation(fade);
+                }
+                animationSet.setShowBackdrop(true);
+                return animationSet;
+            }
+        }
+
+        /** @hide */
+        public static Animation getOpenEnter(Context context) {
+            sOpenEnter.setBackdropColor(loadBackdropColor(context));
+            return sOpenEnter;
+        }
+
+        /** @hide */
+        public static Animation getOpenExit(Context context) {
+            sOpenExit.setBackdropColor(loadBackdropColor(context));
+            return sOpenExit;
+        }
+
+        /** @hide */
+        public static Animation getCloseEnter(Context context) {
+            sCloseEnter.setBackdropColor(loadBackdropColor(context));
+            return sCloseEnter;
+        }
+
+        /** @hide */
+        public static Animation getCloseExit(Context context) {
+            sCloseExit.setBackdropColor(loadBackdropColor(context));
+            return sCloseExit;
+        }
+    }
+
+    /** @hide */
     public static final class SpringInterpolator implements Interpolator {
         private final float mDampingRatio;
         private final float mOmega0;
@@ -576,102 +691,6 @@ public class AnimationUtils {
         @Override
         public float getInterpolation(float input) {
             return rawSpring(input * mDurationSec) + mEndGap * input;
-        }
-    }
-
-    /** @hide */
-    public final class ActivityAnimations {
-
-        private static Animation sOpenEnter;
-        private static Animation sOpenExit;
-        private static Animation sCloseEnter;
-        private static Animation sCloseExit;
-
-        private static Interpolator sFastOutExtraSlowInInterpolator;
-
-        private static final float DISTANCE = 0.1f;
-
-        private ActivityAnimations() {}
-
-        /** @hide */
-        public static void maybeInit(Context context) {
-            if (sFastOutExtraSlowInInterpolator == null) {
-                sFastOutExtraSlowInInterpolator = AnimationUtils.loadInterpolator(
-                        context, R.interpolator.fast_out_extra_slow_in);
-            }
-        }
-
-        private static class ActivityAnimFactory {
-            private float fromX = 0f, toX = 0f;
-            private long duration = 200L;
-
-            public ActivityAnimFactory fromX(float ratio) {
-                this.fromX = ratio;
-                return this;
-            }
-
-            public ActivityAnimFactory toX(float ratio) {
-                this.toX = ratio;
-                return this;
-            }
-
-            public Animation build() {
-                AnimationSet animationSet = new AnimationSet(false);
-                TranslateAnimation slide = new TranslateAnimation(
-                        Animation.RELATIVE_TO_SELF, fromX,
-                        Animation.RELATIVE_TO_SELF, toX,
-                        Animation.RELATIVE_TO_SELF, 0f,
-                        Animation.RELATIVE_TO_SELF, 0f
-                );
-                slide.setDuration(duration);
-                slide.setInterpolator(sFastOutExtraSlowInInterpolator);
-                animationSet.addAnimation(slide);
-                return animationSet;
-            }
-        }
-
-        /** @hide */
-        public static Animation getOpenEnter() {
-            if (sOpenEnter == null) {
-                sOpenEnter = new ActivityAnimFactory()
-                        .fromX(1.0f)
-                        .toX(0.0f)
-                        .build();
-            }
-            return sOpenEnter;
-        }
-
-        /** @hide */
-        public static Animation getOpenExit() {
-            if (sOpenExit == null) {
-                sOpenExit = new ActivityAnimFactory()
-                        .fromX(0.0f)
-                        .toX(-DISTANCE)
-                        .build();
-            }
-            return sOpenExit;
-        }
-
-        /** @hide */
-        public static Animation getCloseEnter() {
-            if (sCloseEnter == null) {
-                sCloseEnter = new ActivityAnimFactory()
-                        .fromX(-DISTANCE)
-                        .toX(0.0f)
-                        .build();
-            }
-            return sCloseEnter;
-        }
-
-        /** @hide */
-        public static Animation getCloseExit() {
-            if (sCloseExit == null) {
-                sCloseExit = new ActivityAnimFactory()
-                        .fromX(0.0f)
-                        .toX(1.0f)
-                        .build();
-            }
-            return sCloseExit;
         }
     }
 }
