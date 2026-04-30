@@ -4142,6 +4142,12 @@ public class ActivityManagerService extends IActivityManager.Stub
     public long[] getProcessPss(int[] pids) {
         enforceNotIsolatedCaller("getProcessPss");
 
+        final long[] pss = new long[pids.length];
+
+        if (!Build.IS_ENG) {
+            return pss;
+        }
+
         final int callingPid = Binder.getCallingPid();
         final int callingUid = Binder.getCallingUid();
         final int userId = UserHandle.getUserId(callingUid);
