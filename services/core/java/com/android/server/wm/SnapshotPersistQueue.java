@@ -36,7 +36,6 @@ import android.window.TaskSnapshot;
 
 import com.android.internal.annotations.GuardedBy;
 import com.android.internal.annotations.VisibleForTesting;
-import com.android.server.AxExtServiceFactory;
 import com.android.server.LocalServices;
 import com.android.server.pm.UserManagerInternal;
 import com.android.server.wm.BaseAppSnapshotPersister.LowResSnapshotSupplier;
@@ -260,14 +259,9 @@ class SnapshotPersistQueue {
             while (true) {
                 WriteQueueItem next;
                 boolean isReadyToWrite = false;
-                boolean deferWrite = false;
                 synchronized (mLock) {
                     if (mPaused) {
                         next = null;
-                    } else if (!mShutdown && !mWriteQueue.isEmpty()
-                            && AxExtServiceFactory.getAxBurstEngine().shouldDeferProcessPss()) {
-                        next = null;
-                        deferWrite = true;
                     } else {
                         next = mWriteQueue.poll();
                         if (next != null) {
@@ -284,10 +278,6 @@ class SnapshotPersistQueue {
                             }
                         }
                     }
-                }
-                if (deferWrite) {
-                    SystemClock.sleep(DELAY_MS);
-                    continue;
                 }
                 if (next != null) {
                     if (isReadyToWrite) {
