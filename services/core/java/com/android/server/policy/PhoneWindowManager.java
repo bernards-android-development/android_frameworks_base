@@ -499,6 +499,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
     private boolean mHasFeatureWatch;
     private boolean mHasFeatureLeanback;
     private boolean mHasFeatureHdmiCec;
+    
+    private boolean mIsSetupComplete = false;
 
     // Assigned on main thread, accessed on UI thread
     volatile VrManagerInternal mVrManagerInternal;
@@ -885,6 +887,9 @@ public class PhoneWindowManager implements WindowManagerPolicy {
         void observe() {
             // Observe all users' changes
             ContentResolver resolver = mContext.getContentResolver();
+            resolver.registerContentObserver(Settings.Secure.getUriFor(
+                    Settings.Secure.USER_SETUP_COMPLETE), false, this,
+                    UserHandle.USER_ALL);
             resolver.registerContentObserver(Settings.System.getUriFor(
                     Settings.System.END_BUTTON_BEHAVIOR), false, this,
                     UserHandle.USER_ALL);
@@ -1922,8 +1927,7 @@ public class PhoneWindowManager implements WindowManagerPolicy {
 
     @Override
     public boolean isUserSetupComplete() {
-        boolean isSetupComplete = Settings.Secure.getIntForUser(mContext.getContentResolver(),
-                Settings.Secure.USER_SETUP_COMPLETE, 0, UserHandle.USER_CURRENT) != 0;
+        boolean isSetupComplete = mIsSetupComplete;
         if (mHasFeatureLeanback) {
             isSetupComplete &= isTvUserSetupComplete();
         } else if (mHasFeatureAuto) {
@@ -3059,6 +3063,8 @@ public class PhoneWindowManager implements WindowManagerPolicy {
             return;
         }
         ContentResolver resolver = mContext.getContentResolver();
+        mIsSetupComplete = Settings.Secure.getIntForUser(mContext.getContentResolver(),
+                Settings.Secure.USER_SETUP_COMPLETE, 0, UserHandle.USER_CURRENT) != 0;
         boolean updateRotation = false;
         boolean updateKidsModeSettings = false;
         final boolean kidsModeEnabled;
