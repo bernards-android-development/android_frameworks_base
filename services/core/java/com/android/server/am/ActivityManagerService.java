@@ -4143,6 +4143,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         enforceNotIsolatedCaller("getProcessPss");
 
         final long[] pss = new long[pids.length];
+
         if (!Build.IS_ENG) {
             return pss;
         }
@@ -4156,6 +4157,7 @@ public class ActivityManagerService extends IActivityManager.Stub
         final boolean allUids = mAtmInternal.isGetTasksAllowed(
                 "getProcessPss", callingPid, callingUid);
 
+        final long[] pss = new long[pids.length];
         for (int i=pids.length-1; i>=0; i--) {
             ProcessRecord proc;
             int oomAdj;
