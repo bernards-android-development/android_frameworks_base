@@ -24,6 +24,9 @@ import static android.view.Display.INVALID_DISPLAY;
 import static com.android.wm.shell.Flags.enableShellTopTaskTracking;
 import static com.android.wm.shell.desktopmode.DesktopWallpaperActivity.isWallpaperTask;
 import static com.android.wm.shell.protolog.ShellProtoLogGroup.WM_SHELL_TASK_OBSERVER;
+import static com.android.wm.shell.shared.GroupedTaskInfo.TYPE_DESK;
+import static com.android.wm.shell.shared.GroupedTaskInfo.TYPE_MIXED;
+import static com.android.wm.shell.shared.GroupedTaskInfo.TYPE_SPLIT;
 
 import android.Manifest;
 import android.annotation.RequiresPermission;
@@ -75,10 +78,12 @@ import com.android.wm.shell.sysui.UserChangeListener;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
@@ -93,6 +98,7 @@ public class RecentTasksController implements TaskStackListenerCallback,
         TaskStackTransitionObserver.TaskStackTransitionObserverListener, UserChangeListener,
         DesktopRepository.DeskChangeListener {
     private static final String TAG = RecentTasksController.class.getSimpleName();
+    private static final long RECENT_TASKS_CHANGED_COALESCE_DELAY_MS = 100;
 
     // When the multiple desktops feature is disabled, all freeform tasks are lumped together into
     // a single `GroupedTaskInfo` whose type is `TYPE_DESK`, and its `mDeskId` doesn't matter, so
@@ -114,6 +120,20 @@ public class RecentTasksController implements TaskStackListenerCallback,
     private RecentsTransitionHandler mTransitionHandler = null;
     private IRecentTasksListener mListener;
     private final boolean mPcFeatureEnabled;
+    private boolean mRecentsTransitionRunning;
+    private boolean mPendingRecentTasksChanged;
+    private boolean mPendingRecentTasksChangedForce;
+    private boolean mRecentTasksChangedScheduled;
+    private String mLastRecentTasksFingerprint;
+    private final Runnable mNotifyRecentTasksChangedRunnable =
+            () -> flushRecentTasksChanged(false /* force */);
+    private final RecentsTransitionStateListener mRecentsTransitionStateListener =
+            new RecentsTransitionStateListener() {
+                @Override
+                public void onTransitionStateChanged(@RecentsTransitionState int state) {
+                    onRecentsTransitionStateChanged(state);
+                }
+            };
 
     // Mapping of split task ids, mappings are symmetrical (ie. if t1 is the taskid of a task in a
     // pair, then mSplitTasks[t1] = t2, and mSplitTasks[t2] = t1)
@@ -214,11 +234,30 @@ public class RecentTasksController implements TaskStackListenerCallback,
         mTaskStackTransitionObserver.addTaskStackTransitionObserverListener(this,
                 mMainExecutor);
         mContext.getSystemService(KeyguardManager.class).addKeyguardLockedStateListener(
-                mMainExecutor, isKeyguardLocked -> notifyRecentTasksChanged());
+                mMainExecutor, isKeyguardLocked -> notifyRecentTasksChanged(true /* force */));
     }
 
     void setTransitionHandler(RecentsTransitionHandler handler) {
+        if (mTransitionHandler == handler) {
+            return;
+        }
         mTransitionHandler = handler;
+        if (mTransitionHandler != null) {
+            mTransitionHandler.addTransitionStateListener(mRecentsTransitionStateListener);
+        }
+    }
+
+    private void onRecentsTransitionStateChanged(
+            @RecentsTransitionStateListener.RecentsTransitionState int state) {
+        if (RecentsTransitionStateListener.isRunning(state)) {
+            mRecentsTransitionRunning = true;
+            return;
+        }
+        mRecentsTransitionRunning = false;
+        if (mPendingRecentTasksChanged) {
+            cancelScheduledRecentTasksChanged();
+            flushRecentTasksChanged(false /* force */);
+        }
     }
 
     /**
@@ -380,15 +419,236 @@ public class RecentTasksController implements TaskStackListenerCallback,
 
     @VisibleForTesting
     void notifyRecentTasksChanged() {
+        notifyRecentTasksChanged(false /* force */);
+    }
+
+    private void notifyRecentTasksChanged(boolean force) {
         ProtoLog.v(ShellProtoLogGroup.WM_SHELL_RECENT_TASKS, "Notify recent tasks changed");
         if (mListener == null) {
+            clearPendingRecentTasksChanged();
             return;
         }
+        mPendingRecentTasksChanged = true;
+        mPendingRecentTasksChangedForce |= force;
+        if (mRecentsTransitionRunning) {
+            return;
+        }
+        if (force) {
+            cancelScheduledRecentTasksChanged();
+            flushRecentTasksChanged(true /* force */);
+            return;
+        }
+        scheduleRecentTasksChanged();
+    }
+
+    private void scheduleRecentTasksChanged() {
+        if (mRecentTasksChangedScheduled) {
+            return;
+        }
+        mRecentTasksChangedScheduled = true;
+        mMainExecutor.executeDelayed(mNotifyRecentTasksChangedRunnable,
+                RECENT_TASKS_CHANGED_COALESCE_DELAY_MS);
+    }
+
+    private void cancelScheduledRecentTasksChanged() {
+        mMainExecutor.removeCallbacks(mNotifyRecentTasksChangedRunnable);
+        mRecentTasksChangedScheduled = false;
+    }
+
+    private void clearPendingRecentTasksChanged() {
+        cancelScheduledRecentTasksChanged();
+        mPendingRecentTasksChanged = false;
+        mPendingRecentTasksChangedForce = false;
+    }
+
+    private void flushRecentTasksChanged(boolean force) {
+        mRecentTasksChangedScheduled = false;
+        if (mListener == null) {
+            clearPendingRecentTasksChanged();
+            return;
+        }
+        if (mRecentsTransitionRunning && !force) {
+            mPendingRecentTasksChanged = true;
+            return;
+        }
+        if (!mPendingRecentTasksChanged && !force) {
+            return;
+        }
+
+        final boolean shouldForce = force || mPendingRecentTasksChangedForce;
+        mPendingRecentTasksChanged = false;
+        mPendingRecentTasksChangedForce = false;
+
+        String newFingerprint = null;
+        try {
+            newFingerprint = createRecentTasksFingerprint(getRecentTasks(Integer.MAX_VALUE,
+                    ActivityManager.RECENT_IGNORE_UNAVAILABLE,
+                    ActivityManager.getCurrentUser()));
+            if (!shouldForce && Objects.equals(newFingerprint, mLastRecentTasksFingerprint)) {
+                return;
+            }
+        } catch (RuntimeException e) {
+            Slog.w(TAG, "Failed to fingerprint recent tasks", e);
+        }
+
+        if (dispatchRecentTasksChanged() && newFingerprint != null) {
+            mLastRecentTasksFingerprint = newFingerprint;
+        }
+    }
+
+    private boolean dispatchRecentTasksChanged() {
         try {
             mListener.onRecentTasksChanged();
+            return true;
         } catch (RemoteException e) {
             Slog.w(TAG, "Failed call notifyRecentTasksChanged", e);
+            return false;
         }
+    }
+
+    private String createRecentTasksFingerprint(List<GroupedTaskInfo> recentTasks) {
+        StringBuilder sb = new StringBuilder(recentTasks.size() * 128);
+        sb.append("size=").append(recentTasks.size()).append(';');
+        for (int i = 0; i < recentTasks.size(); i++) {
+            appendGroupedTaskFingerprint(sb, recentTasks.get(i));
+            sb.append(';');
+        }
+        return sb.toString();
+    }
+
+    @SuppressWarnings("deprecation")
+    private void appendGroupedTaskFingerprint(StringBuilder sb, GroupedTaskInfo groupedTask) {
+        final int type = groupedTask.getType();
+        sb.append("group{type=").append(type);
+        if (type == TYPE_DESK) {
+            sb.append(",deskId=").append(groupedTask.getDeskId());
+            sb.append(",deskDisplay=").append(groupedTask.getDeskDisplayId());
+            appendIntArray(sb, groupedTask.getMinimizedTaskIds());
+        } else if (type == TYPE_SPLIT) {
+            appendSplitBounds(sb, groupedTask.getSplitBounds());
+        } else if (type == TYPE_MIXED) {
+            sb.append(",mixed");
+        }
+        for (TaskInfo taskInfo : groupedTask.getTaskInfoList()) {
+            appendTaskInfoFingerprint(sb, taskInfo);
+        }
+        sb.append('}');
+    }
+
+    private void appendTaskInfoFingerprint(StringBuilder sb, TaskInfo taskInfo) {
+        sb.append(",task{");
+        sb.append("id=").append(taskInfo.taskId);
+        sb.append(",user=").append(taskInfo.userId);
+        sb.append(",display=").append(taskInfo.displayId);
+        sb.append(",win=").append(taskInfo.getWindowingMode());
+        sb.append(",act=").append(taskInfo.getActivityType());
+        sb.append(",topActType=").append(taskInfo.topActivityType);
+        sb.append(",visible=").append(taskInfo.isVisible);
+        sb.append(",visibleReq=").append(taskInfo.isVisibleRequested);
+        sb.append(",transparent=").append(taskInfo.isTopActivityTransparent);
+        sb.append(",noDisplay=").append(taskInfo.isTopActivityNoDisplay);
+        sb.append(",stackTransparent=").append(taskInfo.isActivityStackTransparent);
+        sb.append(",lastActive=").append(taskInfo.lastActiveTime);
+        sb.append(",numActivities=").append(taskInfo.numActivities);
+        sb.append(",supportsMultiWindow=").append(taskInfo.supportsMultiWindow);
+        appendComponentName(sb, "real", taskInfo.realActivity);
+        appendComponentName(sb, "orig", taskInfo.origActivity);
+        appendComponentName(sb, "base", taskInfo.baseActivity);
+        appendComponentName(sb, "top", taskInfo.topActivity);
+        appendIntent(sb, taskInfo.baseIntent);
+        appendRect(sb, taskInfo.configuration.windowConfiguration.getAppBounds());
+        appendPoint(sb, taskInfo.positionInParent);
+        appendTaskDescription(sb, taskInfo.taskDescription);
+        sb.append('}');
+    }
+
+    private void appendIntent(StringBuilder sb, @Nullable Intent intent) {
+        sb.append(",intent=");
+        if (intent == null) {
+            sb.append("null");
+            return;
+        }
+        sb.append('{');
+        appendComponentName(sb, "component", intent.getComponent());
+        sb.append(",pkg=").append(intent.getPackage());
+        sb.append(",action=").append(intent.getAction());
+        sb.append(",data=").append(intent.getDataString());
+        sb.append(",type=").append(intent.getType());
+        sb.append(",flags=").append(intent.getFlags());
+        final Set<String> categories = intent.getCategories();
+        if (categories != null) {
+            sb.append(",categories=");
+            categories.stream().sorted().forEach(category -> sb.append(category).append('|'));
+        }
+        sb.append('}');
+    }
+
+    private void appendTaskDescription(StringBuilder sb,
+            @Nullable ActivityManager.TaskDescription taskDescription) {
+        sb.append(",td=");
+        if (taskDescription == null) {
+            sb.append("null");
+            return;
+        }
+        sb.append('{');
+        sb.append("label=").append(taskDescription.getLabel());
+        sb.append(",primary=").append(taskDescription.getPrimaryColor());
+        sb.append(",background=").append(taskDescription.getBackgroundColor());
+        sb.append(",iconPkg=").append(taskDescription.getIconResourcePackage());
+        sb.append(",iconRes=").append(taskDescription.getIconResource());
+        sb.append(",iconFile=").append(taskDescription.getIconFilename());
+        sb.append('}');
+    }
+
+    private void appendSplitBounds(StringBuilder sb, @Nullable SplitBounds splitBounds) {
+        sb.append(",split=");
+        if (splitBounds == null) {
+            sb.append("null");
+            return;
+        }
+        sb.append('{');
+        appendRect(sb, splitBounds.leftTopBounds);
+        appendRect(sb, splitBounds.rightBottomBounds);
+        sb.append(",leftIds=").append(splitBounds.leftTopTaskIds);
+        sb.append(",rightIds=").append(splitBounds.rightBottomTaskIds);
+        sb.append(",snap=").append(splitBounds.snapPosition);
+        sb.append('}');
+    }
+
+    private void appendIntArray(StringBuilder sb, @Nullable int[] values) {
+        sb.append(",ints=");
+        if (values == null) {
+            sb.append("null");
+            return;
+        }
+        int[] copy = Arrays.copyOf(values, values.length);
+        Arrays.sort(copy);
+        sb.append(Arrays.toString(copy));
+    }
+
+    private void appendComponentName(StringBuilder sb, String label,
+            @Nullable ComponentName componentName) {
+        sb.append(',').append(label).append('=');
+        sb.append(componentName != null ? componentName.flattenToString() : "null");
+    }
+
+    private void appendRect(StringBuilder sb, @Nullable android.graphics.Rect rect) {
+        sb.append(",rect=");
+        if (rect == null) {
+            sb.append("null");
+            return;
+        }
+        sb.append(rect.left).append(',').append(rect.top).append(',')
+                .append(rect.right).append(',').append(rect.bottom);
+    }
+
+    private void appendPoint(StringBuilder sb, @Nullable Point point) {
+        sb.append(",point=");
+        if (point == null) {
+            sb.append("null");
+            return;
+        }
+        sb.append(point.x).append(',').append(point.y);
     }
 
     /**
@@ -505,6 +765,7 @@ public class RecentTasksController implements TaskStackListenerCallback,
     @VisibleForTesting
     void registerRecentTasksListener(IRecentTasksListener listener) {
         mListener = listener;
+        mLastRecentTasksFingerprint = null;
         if (enableShellTopTaskTracking()) {
             ProtoLog.v(WM_SHELL_TASK_OBSERVER, "registerRecentTasksListener");
             // Post a notification for the current set of visible tasks
@@ -515,6 +776,8 @@ public class RecentTasksController implements TaskStackListenerCallback,
     @VisibleForTesting
     void unregisterRecentTasksListener() {
         mListener = null;
+        clearPendingRecentTasksChanged();
+        mLastRecentTasksFingerprint = null;
     }
 
     @VisibleForTesting
@@ -984,6 +1247,7 @@ public class RecentTasksController implements TaskStackListenerCallback,
 
     @Override
     public void onUserChanged(int newUserId, @NonNull Context userContext) {
+        mLastRecentTasksFingerprint = null;
         if (mDesktopUserRepositories.isEmpty()) return;
 
         DesktopRepository previousUserRepository =
