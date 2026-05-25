@@ -405,6 +405,17 @@ public class PerformFullTransportBackupTask extends FullBackupTask implements Ba
                 mBackupRunner = null;
                 PackageInfo currentPackage = mPackages.get(i);
                 String packageName = currentPackage.packageName;
+                synchronized (mCancelLock) {
+                    if (mCancelled) {
+                        break;
+                    }
+                }
+                if (!mUserInitiated
+                        && mUserBackupManagerService.isFullBackupTargetBusy(currentPackage)) {
+                    mUserBackupManagerService.deferFullBackupForBusyPackage(
+                            packageName, "transport full backup");
+                    continue;
+                }
                 Slog.i(TAG, "Initiating full-data transport backup of " + packageName + " token: "
                         + mCurrentOpToken);
                 EventLog.writeEvent(EventLogTags.FULL_BACKUP_PACKAGE, packageName);

@@ -1998,6 +1998,40 @@ public class UserBackupManagerService {
         writeFullBackupScheduleAsync();
     }
 
+    /** Returns whether a full-backup target should be deferred because it is foreground. */
+    public boolean isFullBackupTargetBusy(PackageInfo packageInfo) {
+        if (packageInfo == null || packageInfo.applicationInfo == null) {
+            return false;
+        }
+
+        final int privFlags = packageInfo.applicationInfo.privateFlags;
+        return (privFlags & PRIVATE_FLAG_BACKUP_IN_FOREGROUND) == 0
+                && mActivityManagerInternal.isAppForeground(packageInfo.applicationInfo.uid);
+    }
+
+    /** Defers a busy full-backup target using the same backoff policy as scheduled full backup. */
+    public void deferFullBackupForBusyPackage(String packageName, String reason) {
+        final long fullBackupInterval = mConstants.getFullBackupIntervalMilliseconds();
+        final long nextEligible =
+                System.currentTimeMillis()
+                        + BUSY_BACKOFF_MIN_MILLIS
+                        + mTokenGenerator.nextInt(BUSY_BACKOFF_FUZZ);
+        SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        Slog.i(
+                TAG,
+                mLogIdMsg
+                        + "Full backup time but "
+                        + packageName
+                        + " is busy"
+                        + (TextUtils.isEmpty(reason) ? "" : " during " + reason)
+                        + "; deferring to "
+                        + sdf.format(new Date(nextEligible)));
+
+        // Relocate the app's entry to its order-appropriate position further down the queue.
+        enqueueFullBackup(packageName, nextEligible - fullBackupInterval);
+        scheduleNextFullBackupJob(/* transportMinLatency */ 0);
+    }
+
     private boolean fullBackupAllowable(String transportName) {
         if (!mTransportManager.isTransportRegistered(transportName)) {
             Slog.w(TAG, mLogIdMsg + "Transport not registered; full data backup not performed");
@@ -2146,29 +2180,11 @@ public class UserBackupManagerService {
                             continue;
                         }
 
-                        final int privFlags = appInfo.applicationInfo.privateFlags;
-                        headBusy =
-                                (privFlags & PRIVATE_FLAG_BACKUP_IN_FOREGROUND) == 0
-                                        && mActivityManagerInternal.isAppForeground(
-                                                appInfo.applicationInfo.uid);
+                        headBusy = isFullBackupTargetBusy(appInfo);
 
                         if (headBusy) {
-                            final long nextEligible =
-                                    System.currentTimeMillis()
-                                            + BUSY_BACKOFF_MIN_MILLIS
-                                            + mTokenGenerator.nextInt(BUSY_BACKOFF_FUZZ);
-                            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-                            Slog.i(
-                                    TAG,
-                                    mLogIdMsg
-                                            + "Full backup time but "
-                                            + entry.packageName
-                                            + " is busy; deferring to "
-                                            + sdf.format(new Date(nextEligible)));
-                            // This relocates the app's entry from the head of the queue to
-                            // its order-appropriate position further down, so upon looping
-                            // a new candidate will be considered at the head.
-                            enqueueFullBackup(entry.packageName, nextEligible - fullBackupInterval);
+                            deferFullBackupForBusyPackage(
+                                    entry.packageName, "scheduled full backup");
                         }
                     } catch (NameNotFoundException nnf) {
                         // So, we think we want to back this up, but it turns out the package
