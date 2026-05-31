@@ -733,6 +733,7 @@ constructor(
                 createOriginTransition(
                     createController = { controllerFactory.createController(isLaunch) },
                     scope,
+                    isLaunch = isLaunch,
                     isDialogLaunch = isDialogLaunch,
                     cleanUp = cleanUp,
                 ),
@@ -899,6 +900,7 @@ constructor(
         return createOriginTransition(
             createController = { controller },
             scope,
+            isLaunch = controller.isLaunching,
             isDialogLaunch = isDialogLaunch,
             transitionHelper = transitionHelper,
         )
@@ -907,6 +909,7 @@ constructor(
     private fun createOriginTransition(
         createController: suspend () -> Controller,
         scope: CoroutineScope,
+        isLaunch: Boolean,
         isDialogLaunch: Boolean = false,
         cleanUp: (() -> Unit)? = null,
         transitionHelper: RemoteTransitionHelper = DefaultTransitionHelper(),
@@ -922,6 +925,7 @@ constructor(
         return OriginTransition(
             createController,
             scope,
+            isLaunch,
             validateCallback(),
             transitionAnimator,
             lifecycleListener,
@@ -1212,6 +1216,7 @@ constructor(
     private inner class OriginTransition(
         private val createController: suspend () -> Controller,
         private val scope: CoroutineScope,
+        private val isLaunch: Boolean,
         private val callback: Callback,
         private val transitionAnimator: TransitionAnimator,
         private val listener: Listener?,
@@ -1377,9 +1382,10 @@ constructor(
             mergeTarget: IBinder?,
             finishCallback: IRemoteTransitionFinishedCallback?,
         ) {
-            if (info?.isDisplayRotationChange() == true) {
-                // Do not accept display rotation merges into origin animations. Cancelling the
-                // launch here drops the notification expansion before it can complete.
+            if (info != null && (isLaunch || info.isDisplayRotationChange())) {
+                // Do not accept merges that cannot be safely folded into origin animations.
+                // Cancelling launch animations drops the source expansion before it can complete;
+                // rejecting lets Shell run the follow-up transition after the current animation.
                 transaction?.close()
                 info.releaseAllSurfaces()
                 return

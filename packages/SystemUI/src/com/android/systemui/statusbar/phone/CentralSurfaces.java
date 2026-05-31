@@ -146,7 +146,8 @@ public interface CentralSurfaces extends Dumpable, LifecycleOwner, CoreStartable
         if (animationAdapter != null) {
             options = ActivityOptions.makeRemoteTransition(
                     new RemoteTransition(
-                            RemoteAnimationRunnerCompat.wrap(animationAdapter.getRunner()),
+                            RemoteAnimationRunnerCompat.wrap(
+                                    animationAdapter.getRunner(), false /* cancelOnMerge */),
                             animationAdapter.getCallingApplication(), "SysUILaunch"));
         } else {
             options = ActivityOptions.makeBasic();

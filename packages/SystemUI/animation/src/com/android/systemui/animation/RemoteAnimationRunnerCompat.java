@@ -81,6 +81,11 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
 
     /** Wraps a remote animation runner in a remote-transition. */
     public static RemoteTransitionStub wrap(IRemoteAnimationRunner runner) {
+        return wrap(runner, true /* cancelOnMerge */);
+    }
+
+    /** Wraps a remote animation runner in a remote-transition. */
+    public static RemoteTransitionStub wrap(IRemoteAnimationRunner runner, boolean cancelOnMerge) {
         return new RemoteTransitionStub() {
             final ArrayMap<IBinder, Runnable> mFinishRunnables = new ArrayMap<>();
 
@@ -234,10 +239,10 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
             public void mergeAnimation(IBinder token, TransitionInfo info,
                     SurfaceControl.Transaction t, IBinder mergeTarget,
                     IRemoteTransitionFinishedCallback finishCallback) throws RemoteException {
-                if (isDisplayRotationChange(info)) {
-                    // Legacy remote animations don't know how to merge display-rotation
-                    // transitions. Reject the merge instead of cancelling the running animation,
-                    // so the rotation can run after the current launch animation finishes.
+                if (!cancelOnMerge || isDisplayRotationChange(info)) {
+                    // Legacy remote animations don't know how to merge other transitions. Some
+                    // launch callers prefer keeping the current animation alive so app trampolines
+                    // or display rotations can run after the launch animation finishes.
                     t.close();
                     info.releaseAllSurfaces();
                     return;
