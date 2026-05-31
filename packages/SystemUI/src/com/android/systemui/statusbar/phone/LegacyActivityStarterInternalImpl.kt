@@ -398,6 +398,7 @@ constructor(
         // run the animation on the keyguard). The animation will take care of (instantly)
         // collapsing the shade and hiding the keyguard once it is done.
         val collapse = (dismissShade || isCommunalDismissLaunch) && !animate
+        val animationPackage = getPendingIntentAnimationPackage(intent, associatedView)
         val runnable = Runnable {
             val startIntent = { optionsBundle: Bundle ->
                 extraOptions?.let { optionsBundle.putAll(it) }
@@ -446,7 +447,7 @@ constructor(
                     activityTransitionAnimator.startPendingIntentWithAnimation(
                         controller,
                         animate,
-                        intent.creatorPackage,
+                        animationPackage,
                         actuallyShowOverLockscreen,
                         object : ActivityTransitionAnimator.LegacyPendingIntentStarter {
                             override fun startPendingIntent(
@@ -492,6 +493,16 @@ constructor(
         } else {
             postOnUiThread(delay = 0, runnable)
         }
+    }
+
+    private fun getPendingIntentAnimationPackage(
+        intent: PendingIntent,
+        associatedView: View?,
+    ): String? {
+        // Proxy push services can create the PendingIntent for another app's notification. Use the
+        // notification owner so in-app trampoline starts can still reuse the launch animation.
+        return (associatedView as? ExpandableNotificationRow)?.entry?.sbn?.packageName
+            ?: intent.creatorPackage
     }
 
     override fun startActivity(

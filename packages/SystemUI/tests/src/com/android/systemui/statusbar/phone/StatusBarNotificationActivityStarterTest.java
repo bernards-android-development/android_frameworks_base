@@ -353,7 +353,7 @@ public class StatusBarNotificationActivityStarterTest extends SysuiTestCase {
         verify(mShadeController, atLeastOnce()).collapseShade();
 
         verify(mActivityTransitionAnimator).startPendingIntentWithAnimation(any(),
-                eq(false) /* animate */, any(),
+                eq(false) /* animate */, eq(mNotificationEntry.getSbn().getPackageName()),
                 any(ActivityTransitionAnimator.LegacyPendingIntentStarter.class));
 
         verify(mAssistManager).hideAssist();

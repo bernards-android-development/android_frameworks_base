@@ -43,6 +43,7 @@ import android.view.SurfaceControl
 import android.view.SyncRtSurfaceTransactionApplier
 import android.view.View
 import android.view.ViewGroup
+import android.view.WindowManager.TRANSIT_CHANGE
 import android.view.WindowManager.TRANSIT_CLOSE
 import android.view.WindowManager.TRANSIT_OPEN
 import android.view.WindowManager.TRANSIT_TO_BACK
@@ -54,6 +55,7 @@ import android.window.RemoteTransition
 import android.window.RemoteTransitionStub
 import android.window.TransitionFilter
 import android.window.TransitionInfo
+import android.window.TransitionInfo.FLAG_IS_DISPLAY
 import android.window.WindowAnimationState
 import androidx.annotation.AnyThread
 import androidx.annotation.BinderThread
@@ -1375,6 +1377,13 @@ constructor(
             mergeTarget: IBinder?,
             finishCallback: IRemoteTransitionFinishedCallback?,
         ) {
+            if (info?.isDisplayRotationChange() == true) {
+                // Do not accept display rotation merges into origin animations. Cancelling the
+                // launch here drops the notification expansion before it can complete.
+                transaction?.close()
+                info.releaseAllSurfaces()
+                return
+            }
             removeTimeouts()
             transaction?.close()
             mainExecutor.execute {
@@ -1437,6 +1446,18 @@ constructor(
             }
 
             dispose()
+        }
+
+        private fun TransitionInfo.isDisplayRotationChange(): Boolean {
+            if (type != TRANSIT_CHANGE) {
+                return false
+            }
+
+            return changes.any {
+                it.mode == TRANSIT_CHANGE &&
+                    (it.flags and FLAG_IS_DISPLAY) != 0 &&
+                    it.startRotation != it.endRotation
+            }
         }
     }
 

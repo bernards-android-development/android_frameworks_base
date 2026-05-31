@@ -542,7 +542,10 @@ public class StatusBarNotificationActivityStarter implements NotificationActivit
                 mActivityTransitionAnimator.startPendingIntentWithAnimation(
                         animationController,
                         animate,
-                        intent.getCreatorPackage(),
+                        // The PendingIntent may be created by a push proxy package. Use the
+                        // notification owner so in-app trampoline starts can still reuse the
+                        // notification launch animation.
+                        entry.getSbn().getPackageName(),
                         (adapter) -> {
                             long eventTime = row.getAndResetLastActionUpTime();
                             Bundle options = eventTime > 0
