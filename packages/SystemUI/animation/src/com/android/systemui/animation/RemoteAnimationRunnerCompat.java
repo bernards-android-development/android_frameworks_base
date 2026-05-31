@@ -17,6 +17,7 @@
 package com.android.systemui.animation;
 
 import static android.app.WindowConfiguration.ACTIVITY_TYPE_HOME;
+import static android.view.WindowManager.TRANSIT_CHANGE;
 import static android.view.WindowManager.TRANSIT_CLOSE;
 import static android.view.WindowManager.TRANSIT_OLD_NONE;
 import static android.view.WindowManager.TRANSIT_OPEN;
@@ -24,6 +25,7 @@ import static android.view.WindowManager.TRANSIT_TO_BACK;
 import static android.view.WindowManager.TRANSIT_TO_FRONT;
 import static android.window.DesktopModeFlags.ENABLE_DESKTOP_WINDOWING_EXIT_BY_MINIMIZE_TRANSITION_BUGFIX;
 import static android.window.DesktopModeFlags.ENABLE_DESKTOP_WINDOWING_EXIT_TRANSITIONS_BUGFIX;
+import static android.window.TransitionInfo.FLAG_IS_DISPLAY;
 import static android.window.TransitionInfo.FLAG_IS_WALLPAPER;
 
 import static com.android.internal.util.Preconditions.checkArgument;
@@ -232,6 +234,15 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
             public void mergeAnimation(IBinder token, TransitionInfo info,
                     SurfaceControl.Transaction t, IBinder mergeTarget,
                     IRemoteTransitionFinishedCallback finishCallback) throws RemoteException {
+                if (isDisplayRotationChange(info)) {
+                    // Legacy remote animations don't know how to merge display-rotation
+                    // transitions. Reject the merge instead of cancelling the running animation,
+                    // so the rotation can run after the current launch animation finishes.
+                    t.close();
+                    info.releaseAllSurfaces();
+                    return;
+                }
+
                 // TODO: hook up merge to recents onTaskAppeared if applicable. Until then, adapt
                 //       to legacy cancel.
                 final Runnable finishRunnable;
@@ -257,6 +268,23 @@ public abstract class RemoteAnimationRunnerCompat extends IRemoteAnimationRunner
                 runner.onAnimationCancelled();
             }
         };
+    }
+
+    private static boolean isDisplayRotationChange(TransitionInfo info) {
+        if (info.getType() != TRANSIT_CHANGE) {
+            return false;
+        }
+
+        for (int i = info.getChanges().size() - 1; i >= 0; --i) {
+            final TransitionInfo.Change change = info.getChanges().get(i);
+            if (change.getMode() == TRANSIT_CHANGE
+                    && (change.getFlags() & FLAG_IS_DISPLAY) != 0
+                    && change.getStartRotation() != change.getEndRotation()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
